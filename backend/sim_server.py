@@ -19,6 +19,7 @@ frontend/backend ispravno primeti razmimoilazenje izmedju "poslato" i
 from __future__ import annotations
 
 import argparse
+import os
 import time
 from threading import Lock
 
@@ -108,6 +109,7 @@ if __name__ == "__main__":
     import uvicorn
 
     parser = argparse.ArgumentParser()
+    parser.add_argument("--host", default=os.getenv("SIM_HOST", "127.0.0.1"))
     parser.add_argument("--port", type=int, default=9000)
     args = parser.parse_args()
-    uvicorn.run(app, host="127.0.0.1", port=args.port)
+    uvicorn.run(app, host=args.host, port=args.port)
