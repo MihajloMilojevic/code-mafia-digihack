@@ -1,0 +1,379 @@
+<!doctype html>
+<html lang="sr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Arm Control</title>
+<script>
+  // ============================================================
+  // PODESI OVDE: adresa backend-a (service.py), NE Live Server-a.
+  // Ako menjas --port pri pokretanju service.py, promeni i ovde.
+  // Ako service.py radi na drugoj masini (npr. PC2), stavi njenu
+  // adresu (ili adresu na koju si preusmerio SSH tunel).
+  // ============================================================
+  const BACKEND_URL = "http://127.0.0.1:8000";
+</script>
+<style>
+  :root {
+    --bg: #10141a;
+    --panel: #1a1f27;
+    --panel-2: #212733;
+    --border: #2c3340;
+    --text: #e6e9ef;
+    --text-dim: #8b93a3;
+    --accent: #4fd1c5;
+    --accent-dim: #2b5f5a;
+    --danger: #e57373;
+    --ok: #6fcf97;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+  }
+  header {
+    display: flex;
+    align-items: center;
+    gap: 24px;
+    padding: 14px 20px;
+    border-bottom: 1px solid var(--border);
+    background: var(--panel);
+  }
+  header h1 { font-size: 16px; font-weight: 600; margin: 0; letter-spacing: 0.2px; }
+  .status { display: flex; gap: 18px; font-size: 13px; color: var(--text-dim); }
+  .status b { color: var(--text); font-weight: 500; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 6px; }
+  .dot.on { background: var(--ok); }
+  .dot.off { background: var(--danger); }
+
+  main {
+    flex: 1;
+    display: grid;
+    grid-template-columns: 1fr 380px;
+    min-height: 0;
+  }
+  .stage {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+  }
+  svg { max-width: 100%; max-height: 100%; }
+
+  .panel {
+    border-left: 1px solid var(--border);
+    background: var(--panel);
+    overflow-y: auto;
+    padding: 18px;
+  }
+  .arm-group { margin-bottom: 22px; }
+  .arm-group h2 {
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    color: var(--text-dim);
+    margin: 0 0 10px;
+    font-weight: 600;
+  }
+  .joint-row { margin-bottom: 12px; }
+  .joint-row label {
+    display: flex;
+    justify-content: space-between;
+    font-size: 12.5px;
+    color: var(--text-dim);
+    margin-bottom: 4px;
+  }
+  .joint-row .val { font-variant-numeric: tabular-nums; color: var(--accent); }
+  input[type="range"] {
+    width: 100%;
+    accent-color: var(--accent);
+  }
+  .actions { display: flex; gap: 10px; margin-top: 10px; }
+  button {
+    flex: 1;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 9px 12px;
+    border-radius: 6px;
+    font-size: 13px;
+    cursor: pointer;
+  }
+  button:hover { border-color: var(--accent); }
+  button.primary { background: var(--accent-dim); border-color: var(--accent); color: var(--accent); }
+  .error-banner {
+    display: none;
+    background: #3a2020;
+    border: 1px solid var(--danger);
+    color: var(--danger);
+    font-size: 12.5px;
+    padding: 8px 10px;
+    border-radius: 6px;
+    margin-bottom: 14px;
+  }
+  .legend {
+    display: flex;
+    gap: 16px;
+    font-size: 11.5px;
+    color: var(--text-dim);
+    margin-bottom: 16px;
+  }
+  .swatch {
+    display: inline-block;
+    width: 14px;
+    height: 3px;
+    margin-right: 5px;
+    vertical-align: middle;
+    border-radius: 2px;
+  }
+  .swatch.target { background: var(--accent); }
+  .swatch.actual { background: #4a5568; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Arm Control</h1>
+  <div class="status">
+    <span><span id="connDot" class="dot off"></span><b id="connLabel">disconnected</b></span>
+    <span>control_source: <b id="controlSource">-</b></span>
+    <span>current_action: <b id="currentAction">-</b></span>
+  </div>
+</header>
+
+<main>
+  <div class="stage">
+    <svg id="skeleton" viewBox="0 0 560 360" xmlns="http://www.w3.org/2000/svg">
+      <!-- telo/simplifikovan gornji torzo -->
+      <line x1="280" y1="60" x2="280" y2="180" stroke="#3a4150" stroke-width="10" stroke-linecap="round"/>
+      <circle cx="280" cy="45" r="22" fill="#232a35" stroke="#3a4150" stroke-width="2"/>
+      <!-- levo rame fiksno -->
+      <circle cx="240" cy="70" r="6" fill="#3a4150"/>
+      <circle cx="320" cy="70" r="6" fill="#3a4150"/>
+      <g id="leftArm"></g>
+      <g id="rightArm"></g>
+      <text x="10" y="345" fill="#5b6474" font-size="11">
+        šematski prikaz: pun luk = target (šalješ), providan luk = stvarno stanje sa robota
+      </text>
+    </svg>
+  </div>
+
+  <div class="panel">
+    <div id="errorBanner" class="error-banner"></div>
+    <div class="legend">
+      <span><span class="swatch target"></span>target (slajderi)</span>
+      <span><span class="swatch actual"></span>stvarno (GetJoinState)</span>
+    </div>
+
+    <div class="arm-group">
+      <h2>Leva ruka</h2>
+      <div id="leftJoints"></div>
+    </div>
+    <div class="arm-group">
+      <h2>Desna ruka</h2>
+      <div id="rightJoints"></div>
+    </div>
+
+    <div class="actions">
+      <button class="primary" id="sendBtn">Pošalji pozu</button>
+      <button id="homeBtn">Home</button>
+    </div>
+    <div class="actions">
+      <button id="syncBtn">Sinhronizuj sa robotom</button>
+    </div>
+  </div>
+</main>
+
+<script>
+const JOINT_NAMES = ["shoulder_flex","shoulder_abduct","upper_arm_roll","elbow","wrist1","wrist2","wrist3"];
+const RANGES = {
+  shoulder_flex: [-2.91, 2.91],
+  shoulder_abduct: [-2.0, 2.0],
+  upper_arm_roll: [-3.14, 3.14],
+  elbow: [-2.0, 2.0], // stvarni znak zavisi od strane, slajder je simetrican radi jednostavnosti
+  wrist1: [-1.0, 1.0],
+  wrist2: [-1.0, 1.0],
+  wrist3: [-1.0, 1.0],
+};
+
+// TARGET = ono sto slajderi kazu (sta zelimo da posaljemo).
+// ACTUAL  = poslednje stanje koje je GetJoinState vratio (sta robot stvarno ima).
+// Ova dva se NAMERNO nikad automatski ne mesaju - jedini most izmedju njih je
+// "Sinhronizuj sa robotom" dugme (target <- actual) i "Posalji pozu" (actual <- target,
+// posredno, kroz PlanningMove).
+let targetLeft = [0, 1.26, 0, -0.03, 0, 0, 0];
+let targetRight = [0, -1.26, 0, 0.03, 0, 0, 0];
+let actualLeft = null;
+let actualRight = null;
+
+function buildJointRows(container, values) {
+  container.innerHTML = "";
+  JOINT_NAMES.forEach((name, i) => {
+    const [min, max] = RANGES[name];
+    const row = document.createElement("div");
+    row.className = "joint-row";
+    row.innerHTML = `
+      <label>${name} <span class="val" id="val-${container.id}-${i}">${values[i].toFixed(2)}</span></label>
+      <input type="range" min="${min}" max="${max}" step="0.01" value="${values[i]}"
+             id="slider-${container.id}-${i}">
+    `;
+    container.appendChild(row);
+    const slider = row.querySelector("input");
+    slider.addEventListener("input", () => {
+      values[i] = parseFloat(slider.value);
+      document.getElementById(`val-${container.id}-${i}`).textContent = values[i].toFixed(2);
+      drawSkeleton();
+    });
+  });
+}
+
+function setSliderValues(container, values) {
+  JOINT_NAMES.forEach((name, i) => {
+    const slider = document.getElementById(`slider-${container.id}-${i}`);
+    const val = document.getElementById(`val-${container.id}-${i}`);
+    if (slider) {
+      slider.value = values[i];
+      val.textContent = values[i].toFixed(2);
+    }
+  });
+}
+
+// Vraca {ex,ey,wx,wy,upperAngle} za dati niz od 7 zglobova, koristi se i za
+// target (pun) i za actual (providan) crtanje istom logikom.
+function computeArmPoints(joints, side) {
+  const shoulderX = side === "left" ? 240 : 320;
+  const shoulderY = 70;
+  const sign = side === "left" ? -1 : 1;
+  const upperLen = 90, foreLen = 80;
+
+  const flex = joints[0];
+  const abduct = joints[1];
+  const roll = joints[2];
+  const elbow = joints[3];
+  const homeAbduct = side === "left" ? 1.26 : -1.26;
+
+  const upperAngle = Math.PI / 2 + flex * sign * -1;
+  // abdukcija: sematski bocni pomak ruke od tela, razlika od home ugla
+  const abductOffset = (abduct - homeAbduct) * sign * -18;
+
+  const ex = shoulderX + Math.cos(upperAngle) * upperLen * sign + abductOffset;
+  const ey = shoulderY + Math.sin(upperAngle) * upperLen;
+
+  const foreAngle = upperAngle + elbow * sign;
+  const wx = ex + Math.cos(foreAngle) * foreLen * sign;
+  const wy = ey + Math.sin(foreAngle) * foreLen;
+
+  return { shoulderX, shoulderY, ex, ey, wx, wy, upperAngle, roll, wrist: joints.slice(4, 7) };
+}
+
+function armSvg(p, opacity, colorUpper, colorFore) {
+  // mala oznaka rotacije (upper_arm_roll) na sredini gornje ruke
+  const midX = (p.shoulderX + p.ex) / 2, midY = (p.shoulderY + p.ey) / 2;
+  const rollLen = 10;
+  const rx = midX + Math.cos(p.roll) * rollLen, ry = midY + Math.sin(p.roll) * rollLen;
+
+  // sematski "wrist gauge" - 3 kratke linije oko sake za wrist1/2/3
+  const wristTicks = p.wrist.map((v, i) => {
+    const a = (i - 1) * 0.9 + v; // razmakni tri tick-a + rotiraj po vrednosti
+    const tx = p.wx + Math.cos(a) * 14, ty = p.wy + Math.sin(a) * 14;
+    return `<line x1="${p.wx}" y1="${p.wy}" x2="${tx}" y2="${ty}" stroke="${colorFore}" stroke-width="2" opacity="${opacity}"/>`;
+  }).join("");
+
+  return `
+    <line x1="${p.shoulderX}" y1="${p.shoulderY}" x2="${p.ex}" y2="${p.ey}"
+          stroke="${colorUpper}" stroke-width="9" stroke-linecap="round" opacity="${opacity}"/>
+    <line x1="${midX}" y1="${midY}" x2="${rx}" y2="${ry}"
+          stroke="${colorFore}" stroke-width="2" opacity="${opacity}"/>
+    <line x1="${p.ex}" y1="${p.ey}" x2="${p.wx}" y2="${p.wy}"
+          stroke="${colorFore}" stroke-width="7" stroke-linecap="round" opacity="${opacity}"/>
+    ${wristTicks}
+    <circle cx="${p.ex}" cy="${p.ey}" r="5" fill="#10141a" stroke="${colorUpper}" stroke-width="2" opacity="${opacity}"/>
+    <circle cx="${p.wx}" cy="${p.wy}" r="6" fill="#10141a" stroke="${colorFore}" stroke-width="2" opacity="${opacity}"/>
+  `;
+}
+
+function drawArm(groupId, target, actual, side) {
+  const g = document.getElementById(groupId);
+  let html = "";
+  if (actual) {
+    const pa = computeArmPoints(actual, side);
+    html += armSvg(pa, 0.35, "#4a5568", "#5a6578");
+  }
+  const pt = computeArmPoints(target, side);
+  html += armSvg(pt, 1, "#4fd1c5", "#7fe3d9");
+  g.innerHTML = html;
+}
+
+function drawSkeleton() {
+  drawArm("leftArm", targetLeft, actualLeft, "left");
+  drawArm("rightArm", targetRight, actualRight, "right");
+}
+
+function syncFromRobot() {
+  if (!actualLeft || !actualRight) return;
+  targetLeft = [...actualLeft];
+  targetRight = [...actualRight];
+  setSliderValues(document.getElementById("leftJoints"), targetLeft);
+  setSliderValues(document.getElementById("rightJoints"), targetRight);
+  drawSkeleton();
+}
+
+async function pollState() {
+  try {
+    const res = await fetch(`${BACKEND_URL}/api/state`);
+    const data = await res.json();
+
+    document.getElementById("connDot").className = "dot " + (data.connected ? "on" : "off");
+    document.getElementById("connLabel").textContent = data.connected ? "connected" : "disconnected";
+    document.getElementById("controlSource").textContent = data.control_source ?? "-";
+    document.getElementById("currentAction").textContent = data.current_action ?? "-";
+
+    const banner = document.getElementById("errorBanner");
+    if (data.last_error) {
+      banner.style.display = "block";
+      banner.textContent = data.last_error;
+    } else {
+      banner.style.display = "none";
+    }
+
+    if (data.joints) {
+      actualLeft = data.joints.slice(0, 7);
+      actualRight = data.joints.slice(7, 14);
+      drawSkeleton(); // samo osvezi "actual" duh-ruku, target ostaje netaknut
+    }
+  } catch (e) {
+    document.getElementById("connDot").className = "dot off";
+    document.getElementById("connLabel").textContent = "backend unreachable";
+  }
+}
+
+async function sendPose() {
+  await fetch(`${BACKEND_URL}/api/pose`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ left: targetLeft, right: targetRight, velocity_scale: 0.1, acceleration_scale: 0.1 }),
+  });
+}
+
+async function goHome() {
+  await fetch(`${BACKEND_URL}/api/home`, { method: "POST" });
+}
+
+document.getElementById("sendBtn").addEventListener("click", sendPose);
+document.getElementById("homeBtn").addEventListener("click", goHome);
+document.getElementById("syncBtn").addEventListener("click", syncFromRobot);
+
+buildJointRows(document.getElementById("leftJoints"), targetLeft);
+buildJointRows(document.getElementById("rightJoints"), targetRight);
+drawSkeleton();
+
+setInterval(pollState, 300);
+pollState();
+</script>
+</body>
+</html>
