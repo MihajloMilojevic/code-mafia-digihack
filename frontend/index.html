@@ -184,6 +184,9 @@
       <button id="homeBtn">Home</button>
     </div>
     <div class="actions">
+      <button id="resetSlidersBtn">Resetuj slajdere (lokalno, ne šalje ništa)</button>
+    </div>
+    <div class="actions">
       <button id="syncBtn">Sinhronizuj sa robotom</button>
     </div>
     <div class="actions">
@@ -403,8 +406,20 @@ async function ensurePlannerMode() {
   }
 }
 
+function resetSlidersLocally() {
+  // NE zove backend/robota - samo vraca slajdere (target) na HOME vrednosti,
+  // da imas razuman polazni pokusaj posle testiranja ekstremnih poza.
+  // Da bi se ovo stvarno videlo na robotu, i dalje treba kliknuti "Poslji pozu".
+  targetLeft = [0.00, 1.20, 0.02, -0.10, 1.60, 0.0, 0.0];
+  targetRight = [0.00, -1.20, 0.04, 0.10, 1.60, 0.0, 0.0];
+  setSliderValues(document.getElementById("leftJoints"), targetLeft);
+  setSliderValues(document.getElementById("rightJoints"), targetRight);
+  drawSkeleton();
+}
+
 document.getElementById("sendBtn").addEventListener("click", sendPose);
 document.getElementById("homeBtn").addEventListener("click", goHome);
+document.getElementById("resetSlidersBtn").addEventListener("click", resetSlidersLocally);
 document.getElementById("syncBtn").addEventListener("click", syncFromRobot);
 document.getElementById("ensureModeBtn").addEventListener("click", ensurePlannerMode);
 
