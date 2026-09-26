@@ -186,35 +186,54 @@
     <div class="actions">
       <button id="syncBtn">Sinhronizuj sa robotom</button>
     </div>
+    <div class="actions">
+      <button id="ensureModeBtn">Uđi u planner mod</button>
+    </div>
   </div>
 </main>
 
 <script>
 const JOINT_NAMES = ["shoulder_flex","shoulder_abduct","upper_arm_roll","elbow","wrist1","wrist2","wrist3"];
-const RANGES = {
+
+// Potvrdjene granice iz a2_motion.py (ARM_LIMITS) - abdukcija i lakat su
+// ASIMETRICNI po strani, zato su odvojeni RANGES_LEFT/RANGES_RIGHT umesto
+// jednog zajednickog RANGES kao ranije.
+const RANGES_LEFT = {
   shoulder_flex: [-2.91, 2.91],
-  shoulder_abduct: [-2.0, 2.0],
-  upper_arm_roll: [-3.14, 3.14],
-  elbow: [-2.0, 2.0], // stvarni znak zavisi od strane, slajder je simetrican radi jednostavnosti
-  wrist1: [-1.0, 1.0],
-  wrist2: [-1.0, 1.0],
-  wrist3: [-1.0, 1.0],
+  shoulder_abduct: [-0.5236, 1.6581],
+  upper_arm_roll: [-2.91, 2.91],
+  elbow: [-2.0, -0.03],
+  wrist1: [-2.0, 2.0],
+  wrist2: [-2.0, 2.0],
+  wrist3: [-2.0, 2.0],
+};
+const RANGES_RIGHT = {
+  shoulder_flex: [-2.91, 2.91],
+  shoulder_abduct: [-1.6581, 0.5236],
+  upper_arm_roll: [-2.91, 2.91],
+  elbow: [0.03, 2.0],
+  wrist1: [-2.0, 2.0],
+  wrist2: [-2.0, 2.0],
+  wrist3: [-2.0, 2.0],
 };
 
 // TARGET = ono sto slajderi kazu (sta zelimo da posaljemo).
-// ACTUAL  = poslednje stanje koje je GetJoinState vratio (sta robot stvarno ima).
+// ACTUAL  = poslednje stanje koje je GetJointState vratio (sta robot stvarno ima).
 // Ova dva se NAMERNO nikad automatski ne mesaju - jedini most izmedju njih je
 // "Sinhronizuj sa robotom" dugme (target <- actual) i "Posalji pozu" (actual <- target,
 // posredno, kroz PlanningMove).
-let targetLeft = [0, 1.26, 0, -0.03, 0, 0, 0];
-let targetRight = [0, -1.26, 0, 0.03, 0, 0, 0];
+// Pocetne vrednosti = HOME_LEFT/HOME_RIGHT iz a2_motion.py - napomena tamo
+// kaze da ova poza "driftuje" izmedju sesija, pa je ovo samo POCETNI UI
+// prikaz dok se prva "Sinhronizuj sa robotom" ne izvrsi.
+let targetLeft = [0.00, 1.20, 0.02, -0.10, 1.60, 0.0, 0.0];
+let targetRight = [0.00, -1.20, 0.04, 0.10, 1.60, 0.0, 0.0];
 let actualLeft = null;
 let actualRight = null;
 
-function buildJointRows(container, values) {
+function buildJointRows(container, values, ranges) {
   container.innerHTML = "";
   JOINT_NAMES.forEach((name, i) => {
-    const [min, max] = RANGES[name];
+    const [min, max] = ranges[name];
     const row = document.createElement("div");
     row.className = "joint-row";
     row.innerHTML = `
@@ -364,12 +383,33 @@ async function goHome() {
   await fetch(`${BACKEND_URL}/api/home`, { method: "POST" });
 }
 
+async function ensurePlannerMode() {
+  const res = await fetch(`${BACKEND_URL}/api/ensure_arm_action`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ require_interface: "planner" }),
+  });
+  const data = await res.json();
+  const banner = document.getElementById("errorBanner");
+  if (data.status === "error") {
+    banner.style.display = "block";
+    banner.textContent = "ensure_arm_action: " + data.detail;
+  } else {
+    banner.style.display = "block";
+    banner.style.background = "#1f3a2a";
+    banner.style.borderColor = "#6fcf97";
+    banner.style.color = "#6fcf97";
+    banner.textContent = `OK - prethodni mod bio: ${data.previous_action}`;
+  }
+}
+
 document.getElementById("sendBtn").addEventListener("click", sendPose);
 document.getElementById("homeBtn").addEventListener("click", goHome);
 document.getElementById("syncBtn").addEventListener("click", syncFromRobot);
+document.getElementById("ensureModeBtn").addEventListener("click", ensurePlannerMode);
 
-buildJointRows(document.getElementById("leftJoints"), targetLeft);
-buildJointRows(document.getElementById("rightJoints"), targetRight);
+buildJointRows(document.getElementById("leftJoints"), targetLeft, RANGES_LEFT);
+buildJointRows(document.getElementById("rightJoints"), targetRight, RANGES_RIGHT);
 drawSkeleton();
 
 setInterval(pollState, 300);
