@@ -1,64 +1,89 @@
 """
-Tanak klijent oko AimDK HTTP-RPC-a. Radi identično protiv pravog robota
-(http://192.168.100.100:56322) i protiv sim_server.py (http://localhost:9000)
-- jedino se menja AIMDK_BASE_URL.
+Tanak adapter oko a2_motion.A2Motion - sav STVARNI RPC kod (URL-ovi, tacni
+payload oblici, granice zglobova, dijagnostika) sada zivi u a2_motion.py
+(fajl koji je Mihajlo poslao, vec testiran na pravom robotu). Ovaj fajl
+samo prevodi taj API na imena metoda koja service.py vec ocekuje, da se
+service.py NE MENJA.
 
-Potvrđeno na pravom robotu (curl test, 2026-09-26):
-- McBaseService/GetWorkMode  -> {"mode": "ControlSource_SAFE"}
-- McActionService/GetAction  -> {"info": {"current_action": "...", "status": "..."}}
-- McMotionService/PlanningMove -> {"task_id":"0","state":"CommonState_SUCCESS"}
-  (task_id je UVEK "0" - MC prosledjuje ka pnc_arm:56321 i ne vraca pravi id;
-  ovo "SUCCESS" NE znaci da se ruka pomerila, samo da je zahtev primljen -
-  vidi napomenu u chatu o "quiet failure" ponasanju AimDK-a)
+Kljucne ispravke koje ovim dobijamo u odnosu na nas prethodni pokusaj:
+- GetJointState zivi pod McDataService, ne McMotionService - nas raniji
+  404 na "GetJoinState"/"GetJointState" je bio pogresan SERVIS, ne
+  pogresno ime metode.
+- SetAction payload je {"header":..., "command": {"action":..., "ext_action":""}}
+  - nas raniji pokusaj {"header":..., "action":...} je bio bez "command"
+  omotaca, otud "Http req deserialize failed."
+- DUAL_ARM redosled [left x7, right x7] je POTVRDJEN (ne vise pretpostavka).
+- Postoje single-arm McPlanningGroup_LEFT_ARM/RIGHT_ARM grupe.
 
-NIJE potvrdjeno (nagadjanje / za testiranje):
-- GetJoinState (dokument tako piše, moguc tipo za GetJointState) - probaj oba
-- SetAction payload shape - "Http req deserialize failed" na prvi pokusaj,
-  sto znaci metoda VEROVATNO postoji ali oblik JSON-a nije ovaj
+NAMERNO NISAM dodao "ROUTE_TO_TARGET" (visestepeni prelaz kroz
+McAction_RL_LOCOMOTION_DEFAULT pre cilja) koji si pomenuo u chatu - taj
+isecak nije bio ni u jednom poslatom fajlu, pa ga tretiram kao
+nepotvrdjen. ensure_arm_action() ispod radi TACNO ono sto a2_motion.py
+vec radi (jednostepeni prelaz sa sigurnosnim proverama). Ako se na
+robotu pokaze da direktan prelaz iz JOINT_SERVO ne uspeva, dodaj rutu
+ovde - obelezio sam mesto.
 """
 from __future__ import annotations
 
 import os
-import httpx
+from urllib.parse import urlparse
+
+# AIMDK_BASE_URL i dalje radi kao pre (npr. http://localhost:9000 za sim,
+# http://192.168.100.100:56322 za pravi robot) - parsiramo ga OVDE i
+# postavljamo A2_MC_IP/A2_MC_PORT PRE uvoza a2_motion, jer taj modul
+# racuna svoje URL-ove kao module-level konstante tacno pri uvozu.
+_base_url = os.getenv("AIMDK_BASE_URL", "http://192.168.100.100:56322")
+_parsed = urlparse(_base_url)
+os.environ.setdefault("A2_MC_IP", _parsed.hostname or "192.168.100.100")
+os.environ.setdefault("A2_MC_PORT", str(_parsed.port or 56322))
+
+import a2_motion as _a2  # noqa: E402  (mora ici posle env setdefault-a iznad)
+from a2_motion import LEFT_ARM, RIGHT_ARM  # noqa: E402
 
 
 class AimRTArmClient:
-    def __init__(self, base_url: str | None = None, timeout_s: float = 2.0):
-        self.base_url = (base_url or os.getenv("AIMDK_BASE_URL", "http://192.168.100.100:56322")).rstrip("/")
-        self._client = httpx.Client(timeout=timeout_s)
-
-    def _rpc(self, service: str, method: str, payload: dict) -> dict:
-        url = f"{self.base_url}/rpc/aimdk.protocol.{service}/{method}"
-        resp = self._client.post(url, json=payload)
-        resp.raise_for_status()
-        return resp.json()
+    def __init__(self, timeout_s: float = 6.0):
+        self._mc = _a2.A2Motion(dry_run=False, timeout=timeout_s, verbose=False)
 
     # --- Gate 1 & 2 checks ---
     def get_work_mode(self) -> dict:
-        return self._rpc("McBaseService", "GetWorkMode", {"header": {}})
+        return {"mode": self._mc.get_work_mode()}
 
     def get_action(self) -> dict:
-        return self._rpc("McActionService", "GetAction", {"header": {}})
+        cur, status = self._mc.get_action()
+        return {"info": {"current_action": cur, "status": status}}
+
+    def ensure_arm_action(self, action: str | None, allow_switch: bool,
+                           require_interface: str, force_passive: bool) -> dict:
+        """Sigurniji ulaz od sirovog SetAction - proverava standing/passive
+        gate (nikad ne ugasi noge dok robot stoji) i da li mod uopste nudi
+        trazeni interfejs ('planner'/'servo'/'online') pre prelaska.
+
+        # TODO ako direktan prelaz ovde ne uspe sa McAction_RL_WHOLE_BODY_EXT_JOINT_SERVO
+        # kao pocetnim stanjem: ovde bi islo "ROUTE_TO_TARGET" visestepeno
+        # rutiranje (npr. prvo McAction_RL_LOCOMOTION_DEFAULT, pa tek onda
+        # ciljna akcija) - NIJE dodato, nepotvrdjeno, videti napomenu na
+        # vrhu fajla.
+        """
+        previous = self._mc.ensure_arm_action(
+            action=action, allow_switch=allow_switch,
+            require_interface=require_interface, force_passive=force_passive,
+        )
+        return {"previous_action": previous}
 
     def try_set_action(self, action: str) -> dict:
-        """NIJE POTVRDJENO da je ovo tacan payload - na pravom robotu vraca
-        'Http req deserialize failed.' Ostavljeno da se lako menja/testira
-        vise varijanti bez diranja ostatka koda."""
-        return self._rpc(
-            "McActionService", "SetAction",
-            {"header": {"control_source": "ControlSource_SAFE"}, "action": action},
-        )
+        """Sirov, jednostepeni SetAction - ispravan payload sad dolazi iz
+        a2_motion.py. Preferiraj ensure_arm_action() gore osim ako znas
+        tacno sta radis (ova metoda NEMA standing/passive sigurnosnu
+        proveru)."""
+        result = self._mc.set_action(action)
+        return {"result": result}
 
     # --- Joint state ---
     def get_joint_state(self) -> dict:
-        """Dokument pominje 'GetJoinState' (bez t) doslovno - probaj to prvo,
-        pa GetJointState kao fallback ako prvo vrati 404."""
-        try:
-            return self._rpc("McMotionService", "GetJoinState", {"header": {}})
-        except httpx.HTTPStatusError as e:
-            if e.response.status_code == 404:
-                return self._rpc("McMotionService", "GetJointState", {"header": {}})
-            raise
+        js = self._mc.joint_state()
+        joints = [float(js[n]["position"]) for n in LEFT_ARM + RIGHT_ARM]
+        return {"joints": joints}
 
     # --- Motion ---
     def planning_move_dual_arm(
@@ -68,18 +93,14 @@ class AimRTArmClient:
         velocity_scale: float = 0.1,
         acceleration_scale: float = 0.1,
     ) -> dict:
-        # PRETPOSTAVKA: redosled [left x7, right x7] u nizu od 14 - NIJE
-        # eksplicitno potvrdjeno u dokumentaciji, treba potvrditi vizuelno
-        # (pomeri samo jedan joint jedne ruke i gledaj koja se pomera).
+        names = LEFT_ARM + RIGHT_ARM
         joints = [*left_joints, *right_joints]
-        payload = {
-            "header": {"timestamp": {}, "control_source": "ControlSource_SAFE"},
-            "group": "McPlanningGroup_DUAL_ARM",
-            "mode": "McPlanningMode_DEFAULT",
-            "target": {"type": "JOINT", "joints": joints},
-            "param": {"velocity_scale": velocity_scale, "acceleration_scale": acceleration_scale},
-        }
-        return self._rpc("McMotionService", "PlanningMove", payload)
+        task_id = self._mc.planning_move_joint(
+            "McPlanningGroup_DUAL_ARM", joints,
+            velocity_scale=velocity_scale, acceleration_scale=acceleration_scale,
+            names=names,
+        )
+        return {"task_id": str(task_id), "state": "SENT"}
 
-    def close(self):
-        self._client.close()
+    def close(self) -> None:
+        self._mc._session.close()

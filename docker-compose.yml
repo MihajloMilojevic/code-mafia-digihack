@@ -1,0 +1,43 @@
+services:
+  sim:
+    build: ./backend
+    command: python sim_server.py --host 0.0.0.0 --port 9000
+    ports:
+      - "9000:9000"
+
+  backend:
+    build: ./backend
+    command: python service.py --port 8000
+    environment:
+      # unutar docker mreze, "sim" je ime servisa ispod - resava se automatski.
+      # za pravi robot, promeni na http://192.168.100.100:56322 (radi samo
+      # ako masina koja pokrece docker-compose ima mreznu vidljivost ka
+      # robotu - najsigurnije je pokrenuti kompletan compose NA PC2).
+      - AIMDK_BASE_URL=${AIMDK_BASE_URL:-http://sim:9000}
+    ports:
+      - "8000:8000"
+    depends_on:
+      - sim
+
+  frontend:
+    image: nginx:alpine
+    volumes:
+      - ./frontend:/usr/share/nginx/html:ro
+    ports:
+      - "8080:80"
+    depends_on:
+      - backend
+
+  hand-tracker:
+    build: ./vision
+    environment:
+      # URL telefona (IP Webcam app na Androidu) ili "0" za vebkameru
+      # HOSTA - vebkamera hosta obicno NIJE vidljiva iz kontejnera bez
+      # dodatnog device mapiranja, zato je default ovde mrezni izvor.
+      - HAND_TRACKER_SOURCE=${HAND_TRACKER_SOURCE:-http://192.168.1.50:8080/video}
+    # nema "ports" - ovaj servis samo stampa u svoj log, jos se ne zove
+    # nazad ka backend-u (namerno, vidi napomenu u hand_tracker.py)
+
+# .env fajl (isti folder kao ovaj compose) moze da postavi:
+#   AIMDK_BASE_URL=http://192.168.100.100:56322
+#   HAND_TRACKER_SOURCE=http://<telefon-ip>:8080/video

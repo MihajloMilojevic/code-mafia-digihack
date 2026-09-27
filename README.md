@@ -85,3 +85,60 @@ JS-u podešenom na `http://localhost:8000` (trenutno je prazan string
   "Http req deserialize failed." na robotu - realan oblik nepoznat.
 - Opsezi za `upper_arm_roll` i `wrist1-3` u `service.py` su procena,
   ne iz dokumentacije - ne veruj im slepo, kreći se u malim koracima.
+
+## 3. Ceo stack preko docker-compose (sim + backend + frontend + hand-tracker)
+
+```bash
+docker compose up --build
+```
+
+Ovo pokreće:
+- `sim` (9000) - lažni AimDK server
+- `backend` (8000) - naš servis, podrazumevano uperen na `sim`
+- `frontend` (8080) - nginx servira `frontend/index.html`
+- `hand-tracker` - hand-tracking prototip, ispisuje komande SAMO u
+  svoj log (`docker compose logs -f hand-tracker`), ne zove ništa
+
+Otvori `http://localhost:8080` u browseru za UI.
+
+Za pravi robot umesto simulacije, ili za telefon kao kameru umesto
+default placeholder IP-ja, napravi `.env` fajl (kopija `.env.example`)
+pored `docker-compose.yml` i tu promeni vrednosti - `docker compose up`
+će ga automatski pokupiti.
+
+### Telefon kao kamera (za hand-tracker)
+
+**Android:** instaliraj besplatnu app "IP Webcam", pokreni server u
+appu, uzmi prikazani URL (obično `http://<telefon-ip>:8080/video`),
+stavi ga u `.env` kao `HAND_TRACKER_SOURCE`.
+
+**iPhone:** instaliraj "Iriun Webcam" ili "EpocCam" - ove se prijavljuju
+kao obična vebkamera na računaru (ne kao URL). Za taj slučaj **ne
+pokrećeš** `hand-tracker` kroz docker-compose (kontejner ne vidi
+vebkameru domaćina bez dodatnog device mapiranja) - umesto toga pokreni
+ga direktno na računaru:
+
+```bash
+cd vision
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+python hand_tracker.py --source 1   # probaj 0, 1, 2... dok ne nadjes telefon
+```
+
+Ovo takođe otvara prozor uživo (`cv2.imshow`) jer nije u kontejneru -
+korisno da vizuelno potvrdiš da prati saku pre nego što veruješ
+konzolnom ispisu.
+
+### Šta hand-tracker NE radi (namerno, za sada)
+
+Samo ispisuje `[hand_tracker] saka=(x,y) komanda=levo jacina=0.42` u
+konzolu/log. Ne zove `/api/nudge`, ne dodiruje robota. Sledeći korak
+kad ovo bude pouzdano na tvom telefonu/vebkameri: zameniti `print()`
+jednim HTTP pozivom ka `backend`-u - tek onda zatvaramo petlju.
+
+### Chest fisheye kamere (za kasnije, ne ovaj fajl)
+
+Prave A2 kamere (`CHEST_LEFT/RIGHT_FISHEYE`) nisu dostupne preko
+`cv2.VideoCapture` - idu preko ROS2 topic-a (domain 232), i nemamo
+kalibracione parametre za fisheye distorziju. To je zaseban zadatak
+(rclpy subscriber + undistort) za kad se prototip potvrdi da radi.
