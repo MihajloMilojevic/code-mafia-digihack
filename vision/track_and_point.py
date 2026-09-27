@@ -59,7 +59,7 @@ STATUS_INTERVAL_S = 1.0
 
 # TODO: PROVERI na robotu
 ACTING_SIDE = "right"
-SIGN_ABDUCT_MATCHES_SCREEN_RIGHT = True
+SIGN_ABDUCT_MATCHES_SCREEN_RIGHT = False  # POTVRDJENO 2026-09-27: True je davalo obrnut smer na robotu
 
 
 def ensure_hand_model() -> str:

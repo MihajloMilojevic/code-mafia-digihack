@@ -50,7 +50,7 @@ NUDGE_AMOUNT_RAD = 0.08  # mala i bezbedna - isti red velicine kao dosadasnji nu
 
 # TODO: PROVERI na robotu - koja ruka pokazuje, i da li je znak abdukcije tacan
 ACTING_SIDE = "right"
-SIGN_ABDUCT_MATCHES_SCREEN_RIGHT = True  # ako se ruka udaljava umesto priblizava, obrni na False
+SIGN_ABDUCT_MATCHES_SCREEN_RIGHT = False  # POTVRDJENO 2026-09-27: True je davalo obrnut smer na robotu
 
 
 def send_nudge(direction: str, dry_run: bool) -> None:
