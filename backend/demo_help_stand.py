@@ -34,7 +34,7 @@ IDX_FLEX, IDX_ABDUCT, IDX_ROLL, IDX_ELBOW = 0, 1, 2, 3
 
 # --- Korak 1: podigni ruku u visini ramena (napred), dlan na dole ---
 STEP1_FLEX_DEG = 90.0     # 90 = horizontalno napred (0 = ruka visi)
-STEP1_ROLL_RAD = -1.4     # NIJE POTVRDJENO na robotu da li je ovo "dlan dole" -
+STEP1_ROLL_RAD = 1.4     # NIJE POTVRDJENO na robotu da li je ovo "dlan dole" -
                           # gledaj prvi Enter-pauzu i podesi predznak/iznos ako treba
 
 # --- Korak 2: smanji ugao ruke sa 90 na 60 stepeni ---
@@ -47,7 +47,7 @@ STEP2_ROLL_RAD = STEP1_ROLL_RAD   # dlan ostaje isti kao u koraku 1
 # prilazis dlanom dole, pa okreces dlan gore da uhvatis). Ako si STVARNO mislio
 # da ostane isto kao korak 1/2, samo stavi: STEP3_ROLL_RAD = STEP2_ROLL_RAD
 STEP3_FLEX_DEG = STEP2_FLEX_DEG    # ugao ruke se ne menja u ovom koraku
-STEP3_ROLL_RAD = 1.4               # pretpostavka: sad dlan na gore (suprotno od koraka 1)
+STEP3_ROLL_RAD = -1.4               # pretpostavka: sad dlan na gore (suprotno od koraka 1)
 
 # --- Korak 4: povuci ruku nazad uz telo, savij lakat (kao da vuce nesto) ---
 STEP4_FLEX_DEG = 20.0       # blizu tela (0 = potpuno spustena)
