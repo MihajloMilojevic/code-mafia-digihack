@@ -49,10 +49,19 @@ class ROS2FrameSource:
     def __init__(self, side: str):
         if side not in self._ALIAS:
             raise ValueError(f"nepoznata strana '{side}', ocekujem 'left' ili 'right'")
-        # Ros2VideoCapture sam radi configure_ros_environment_defaults()
-        # (ROS_DOMAIN_ID/FASTRTPS profil) i baca jasan RuntimeError sa
-        # timeout-om ako frejm ne stigne za 10s - ne treba nam sopstvena
-        # cekaj-i-upozori logika kao u mom prethodnom pokusaju.
+
+        # FORSIRAMO (ne setdefault) - configure_ros_environment_defaults()
+        # u ros2_capture.py namerno koristi setdefault da ne pregazi tudji
+        # izbor (npr. supervizor servis za drugi robot), ali u OVOM projektu
+        # ros2:* izvor je UVEK AIMA fisheye - nema legitimnog razloga da
+        # sedi na drugom domenu. Potvrdjeno uzivo (2026-09-26): skoljka je
+        # vec imala ROS_DOMAIN_ID=231/ROS_LOCALHOST_ONLY=1 (verovatno iz
+        # nekog ROS2 setup fajla/.bashrc-a), setdefault je to tiho zadrzao,
+        # i subskripcija je "uspela" ali nikad nije primila frejm.
+        import os
+        os.environ["ROS_DOMAIN_ID"] = "232"
+        os.environ["ROS_LOCALHOST_ONLY"] = "0"
+
         self._cap = Ros2VideoCapture(self._ALIAS[side])
 
     def read(self):
