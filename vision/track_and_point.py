@@ -99,10 +99,8 @@ def run(source: str, object_label: str | None, score_threshold: float, model_var
     )
     object_detector = create_detector(object_label, score_threshold=score_threshold, variant=model_variant)
 
-    cap_source = int(source) if source.isdigit() else source
-    cap = cv2.VideoCapture(cap_source)
-    if not cap.isOpened():
-        raise RuntimeError(f"Ne mogu da otvorim izvor kamere: {source}")
+    from frame_source import open_source
+    cap = open_source(source)
 
     print(f"[track_and_point] {'DRY-RUN (samo ispis)' if dry_run else '*** LIVE - salje na robota ***'}"
           f"  side={ACTING_SIDE}  interval={interval_s}s  "

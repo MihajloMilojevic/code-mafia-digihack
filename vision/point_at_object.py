@@ -70,10 +70,8 @@ def run(source: str, hsv_lower, hsv_upper, dry_run: bool, interval_s: float,
     if http_port is not None:
         start_http_preview(http_port)
 
-    cap_source = int(source) if source.isdigit() else source
-    cap = cv2.VideoCapture(cap_source)
-    if not cap.isOpened():
-        raise RuntimeError(f"Ne mogu da otvorim izvor kamere: {source}")
+    from frame_source import open_source
+    cap = open_source(source)
 
     print(f"[point_at_object] {'DRY-RUN (samo ispis)' if dry_run else '*** LIVE - salje na robota ***'}"
           f"  side={ACTING_SIDE}  interval={interval_s}s")

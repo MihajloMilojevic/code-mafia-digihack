@@ -34,11 +34,14 @@ Podesavanje boje cilja:
 Izvor kamere (--source ili HAND_TRACKER_SOURCE env):
   --source 0                               lokalna vebkamera (indeks 0)
   --source http://192.168.1.50:8080/video  telefon sa "IP Webcam" (Android)
+  --source ros2:left                       prava A2 CHEST_LEFT_FISHEYE (PC2)
+  --source ros2:right                      prava A2 CHEST_RIGHT_FISHEYE (PC2)
 
 NAPOMENA o pravim A2 fisheye kamerama (CHEST_LEFT/RIGHT_FISHEYE):
-- Neke reference navode CHEST_FISHEYE_L/R kao V4L (/dev/videoN), direktno
-  cv2.VideoCapture-abilne - PROVERI sa 'v4l2-ctl --list-devices' na PC2
-  pre nego sto pretpostavis da treba ROS2 put (ros_camera_viewer.py).
+- POTVRDJENO (2026-09-26, iz vendorovanog ros2_capture.py): idu preko
+  ROS2 (ne V4L/cv2.VideoCapture direktno) - vidi frame_source.py.
+  ros2:left/right MORA se pokrenuti tamo gde je ROS2/rclpy vec instaliran
+  (isto okruzenje kao postojeci robot_services/vision/detection na PC2).
 - Namerno NE mirroujem sliku - "levo/desno" je iz UGLA KAMERE, ne iz ugla
   posmatraca ispred kamere.
 """
@@ -123,10 +126,8 @@ def run_tune(source: str, hsv_lower: list[int], hsv_upper: list[int]) -> None:
 
     import numpy as np
 
-    cap_source = int(source) if source.isdigit() else source
-    cap = cv2.VideoCapture(cap_source)
-    if not cap.isOpened():
-        raise RuntimeError(f"Ne mogu da otvorim izvor kamere: {source}")
+    from frame_source import open_source
+    cap = open_source(source)
 
     win = "podesi HSV (q za izlaz, ispisuje vrednosti)"
     cv2.namedWindow(win)
@@ -178,10 +179,8 @@ def run(source: str, show_preview: bool, http_port: int | None, hsv_lower, hsv_u
         min_tracking_confidence=0.5,
     )
 
-    cap_source = int(source) if source.isdigit() else source
-    cap = cv2.VideoCapture(cap_source)
-    if not cap.isOpened():
-        raise RuntimeError(f"Ne mogu da otvorim izvor kamere: {source}")
+    from frame_source import open_source
+    cap = open_source(source)
 
     last_print = 0.0
     with HandLandmarker.create_from_options(options) as landmarker:
