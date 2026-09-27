@@ -89,6 +89,24 @@ class EnsureActionRequest(BaseModel):
     force_passive: bool = False          # ne diraj ako ne znas sta radi - vidi a2_motion.py
 
 
+class NudgeRequest(BaseModel):
+    side: str        # "left" | "right"
+    direction: str   # jedan od NUDGE_STEP kljuceva ispod
+    amount_rad: float = 0.15
+
+
+# semanticke ose za /api/nudge - "gore/dole" (podigni/spusti),
+# "od_tela/ka_telu" (u stranu), "napred/nazad" (ispruzi/savij lakat)
+NUDGE_STEP = {
+    "gore": ("shoulder_flex", +1),
+    "dole": ("shoulder_flex", -1),
+    "od_tela": ("shoulder_abduct", +1),
+    "ka_telu": ("shoulder_abduct", -1),
+    "napred": ("elbow", +1),
+    "nazad": ("elbow", -1),
+}
+
+
 async def _poll_loop():
     while True:
         control_source = None
@@ -201,6 +219,55 @@ async def ensure_arm_action(req: EnsureActionRequest):
             client.ensure_arm_action, req.action, True, req.require_interface, req.force_passive
         )
         return {"status": "ok", **result}
+    except Exception as exc:
+        return {"status": "error", "detail": str(exc)}
+
+
+@app.post("/api/nudge")
+async def nudge(req: NudgeRequest):
+    """Mala, ograničena promena JEDNE ose. NAMERNO cita SVEZE stanje
+    direktno (ne keširano iz poll petlje) pre racunanja - ako se ovaj
+    endpoint pozove brze nego sto poll petlja stigne da osvezi (< 300ms
+    izmedju poziva), keš bi bio zastareo i uzastopni nudge-ovi bi
+    racunali na osnovu iste stare vrednosti umesto da se kumulativno
+    priblizavaju cilju."""
+    if req.direction not in NUDGE_STEP:
+        return {"status": "error", "detail": f"nepoznat pravac: {req.direction}"}
+
+    try:
+        fresh = await asyncio.to_thread(client.get_joint_state)
+        joints = list(fresh["joints"])
+    except Exception as exc:
+        return {"status": "error", "detail": f"GetJointState (pre nudge racunanja) nije uspeo: {exc}"}
+
+    joint_name, sign = NUDGE_STEP[req.direction]
+    idx = JOINT_NAMES.index(joint_name) + (0 if req.side == "left" else 7)
+
+    # abdukcija ima suprotan znak home vrednosti po ruci - okreni sign za desnu
+    if joint_name == "shoulder_abduct" and req.side == "right":
+        sign = -sign
+
+    requested = joints[idx] + sign * req.amount_rad
+
+    range_key = f"{joint_name}_{req.side}" if joint_name in PER_SIDE_RANGE_JOINTS else joint_name
+    lo, hi = JOINT_RANGES[range_key]
+    clamped = min(max(requested, lo), hi)
+    at_limit = clamped != requested
+    joints[idx] = clamped
+
+    left, right = joints[:7], joints[7:]
+    try:
+        result = await asyncio.to_thread(
+            client.planning_move_dual_arm, left, right, 0.1, 0.1
+        )
+        resp = {"status": "sent", "rpc_result": result, "new_value": joints[idx], "at_limit": at_limit}
+        if at_limit:
+            resp["detail"] = (
+                f"{joint_name} ({req.side}) je vec na granici opsega ({lo} do {hi}) - "
+                f"dalji pokreti u pravcu '{req.direction}' NECE fizicki pomeriti ruku. "
+                f"Treba drugi zglob/pristup za dalje priblizavanje u ovom pravcu."
+            )
+        return resp
     except Exception as exc:
         return {"status": "error", "detail": str(exc)}
 
