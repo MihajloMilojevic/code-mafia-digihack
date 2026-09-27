@@ -36,7 +36,15 @@ import requests
 from color_target import DEFAULT_HSV_LOWER, DEFAULT_HSV_UPPER, find_target, parse_hsv
 from http_preview import publish_frame, start_http_preview
 
-ARM_CONTROL_URL = os.getenv("ARM_CONTROL_URL", "http://127.0.0.1:8000")
+def _normalize_url(url: str) -> str:
+    """Dodaje http:// ako fali sema - 'requests' bez sheme baca nejasno
+    'No connection adapters were found' umesto razumljive greske."""
+    if not url.startswith(("http://", "https://")):
+        return f"http://{url}"
+    return url
+
+
+ARM_CONTROL_URL = _normalize_url(os.getenv("ARM_CONTROL_URL", "http://127.0.0.1:8000"))
 DEADZONE_FRAC = 0.10     # unutar ovoga od centra = "vec pokazuje", ne salji nista
 NUDGE_AMOUNT_RAD = 0.08  # mala i bezbedna - isti red velicine kao dosadasnji nudge testovi
 
