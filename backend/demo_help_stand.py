@@ -64,9 +64,8 @@ STEP4_ELBOW_RAD = 1.2 if SIDE == "right" else -1.2
 STEPS = [
     ("Korak 1: podigni ruku (90 stepeni), dlan na dole", STEP1_FLEX_DEG, STEP1_ROLL_RAD, STEP1_ELBOW_RAD),
     ("Korak 2: smanji ugao na 60 stepeni", STEP2_FLEX_DEG, STEP2_ROLL_RAD, STEP1_ELBOW_RAD),
-    ("Korak 3: rotiraj dlan", STEP3_FLEX_DEG, STEP3_ROLL_RAD, STEP1_ELBOW_RAD),
-    ("Korak 4:rotiraj ruku", STEP3_FLEX_DEG, STEP4_ROLL_RAD, STEP1_ELBOW_RAD),
-    ("Korak 5: povuci ruku uz telo, savij lakat", STEP4_FLEX_DEG, STEP4_ROLL_RAD, STEP4_ELBOW_RAD),
+    ("Korak 3:rotiraj ruku", STEP3_FLEX_DEG, STEP4_ROLL_RAD, STEP1_ELBOW_RAD),
+    ("Korak 4: povuci ruku uz telo, savij lakat", STEP4_FLEX_DEG, STEP4_ROLL_RAD, STEP4_ELBOW_RAD),
 ]
 
 
