@@ -23,7 +23,7 @@ import requests
 # PODESI OVDE
 # ============================================================
 
-BACKEND_URL = "http://127.0.0.1:8000"   # arm_control_app backend (service.py)
+BACKEND_URL = "http://192.168.2.50:8989"   # arm_control_app backend (service.py)
 SIDE = "right"                           # "left" ili "right" - koja ruka radi demo
 VELOCITY_SCALE = 0.12                    # brzina za sve korake (0.05 sporo .. 0.3 brze)
 
