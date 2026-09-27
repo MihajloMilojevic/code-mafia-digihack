@@ -36,7 +36,7 @@ IDX_FLEX, IDX_ABDUCT, IDX_ROLL, IDX_ELBOW = 0, 1, 2, 3
 STEP1_FLEX_DEG = 90.0     # 90 = horizontalno napred (0 = ruka visi)
 STEP1_ROLL_RAD = 1.4     # NIJE POTVRDJENO na robotu da li je ovo "dlan dole" -
                           # gledaj prvi Enter-pauzu i podesi predznak/iznos ako treba
-STEP1_ELBOW_RAD = 0
+STEP1_ELBOW_RAD = 0.03
 
 # --- Korak 2: smanji ugao ruke sa 90 na 60 stepeni ---
 STEP2_FLEX_DEG = 60.0
