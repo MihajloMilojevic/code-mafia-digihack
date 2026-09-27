@@ -51,7 +51,7 @@ STEP3_ROLL_RAD = -1.4               # pretpostavka: sad dlan na gore (suprotno o
 
 # --- Korak 4: povuci ruku nazad uz telo, savij lakat (kao da vuce nesto) ---
 STEP4_FLEX_DEG = 20.0       # blizu tela (0 = potpuno spustena)
-STEP4_ROLL_RAD = STEP3_ROLL_RAD   # rotacija dlana ostaje ista tokom povlacenja
+STEP4_ROLL_RAD = 0   # rotacija dlana ostaje ista tokom povlacenja
 # elbow opseg iz a2_motion.py: levo (-2.0 .. -0.03), desno (0.03 .. 2.0).
 # Vrednost ispod je "dobrano savijen lakat", ne skroz na granici - bezbednije za prvi test.
 STEP4_ELBOW_RAD = 1.2 if SIDE == "right" else -1.2
