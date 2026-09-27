@@ -36,6 +36,7 @@ IDX_FLEX, IDX_ABDUCT, IDX_ROLL, IDX_ELBOW = 0, 1, 2, 3
 STEP1_FLEX_DEG = 90.0     # 90 = horizontalno napred (0 = ruka visi)
 STEP1_ROLL_RAD = 1.4     # NIJE POTVRDJENO na robotu da li je ovo "dlan dole" -
                           # gledaj prvi Enter-pauzu i podesi predznak/iznos ako treba
+STEP1_ELBOW_RAD = 0
 
 # --- Korak 2: smanji ugao ruke sa 90 na 60 stepeni ---
 STEP2_FLEX_DEG = 60.0
@@ -61,9 +62,9 @@ STEP4_ELBOW_RAD = 1.2 if SIDE == "right" else -1.2
 # ============================================================
 
 STEPS = [
-    ("Korak 1: podigni ruku (90 stepeni), dlan na dole", STEP1_FLEX_DEG, STEP1_ROLL_RAD, None),
-    ("Korak 2: smanji ugao na 60 stepeni", STEP2_FLEX_DEG, STEP2_ROLL_RAD, None),
-    ("Korak 3: rotiraj dlan", STEP3_FLEX_DEG, STEP3_ROLL_RAD, None),
+    ("Korak 1: podigni ruku (90 stepeni), dlan na dole", STEP1_FLEX_DEG, STEP1_ROLL_RAD, STEP1_ELBOW_RAD),
+    ("Korak 2: smanji ugao na 60 stepeni", STEP2_FLEX_DEG, STEP2_ROLL_RAD, STEP1_ELBOW_RAD),
+    ("Korak 3: rotiraj dlan", STEP3_FLEX_DEG, STEP3_ROLL_RAD, STEP1_ELBOW_RAD),
     ("Korak 4: povuci ruku uz telo, savij lakat", STEP4_FLEX_DEG, STEP4_ROLL_RAD, STEP4_ELBOW_RAD),
 ]
 
