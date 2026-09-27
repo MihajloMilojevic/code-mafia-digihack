@@ -1,27 +1,25 @@
 """
-Spaja hand_tracker.py (detekcija saka + objekat, vizuelno) i
-point_at_object.py (slanje /api/nudge) u JEDNU petlju - prati oboje
-istovremeno, i usmerava ruku ROBOTA ka objektu.
+Spaja hand_tracker.py (detekcija saka, vizuelno) i detekciju OPSTEG
+objekta po KATEGORIJI (ne po boji - vidi object_detector.py) u JEDNU
+petlju - prati oboje istovremeno, i usmerava ruku ROBOTA ka objektu.
 
 VAZNA RAZLIKA u odnosu na dva odvojena skripta:
 - SAKA (MediaPipe HandLandmarker) se detektuje i CRTA radi konteksta/
-  demoa (npr. "evo covek pokazuje na ovo") - ali NE koristi se za
-  racunanje nudge komande. Robotova sopstvena ruka nije ljudska saka,
-  MediaPipe je nece prepoznati, pa nema smisla da bude referentna tacka
-  za upravljanje.
-- Nudge komanda se i dalje racuna iz OBJEKAT-a u odnosu na CENTAR SLIKE
-  (ista logika kao point_at_object.py) - to je jedina geometrijski
-  smislena referenca koju imamo bez prave kalibracije kamera<->rame.
+  demoa - ali NE koristi se za racunanje nudge komande. Robotova
+  sopstvena ruka nije ljudska saka, MediaPipe je nece prepoznati.
+- Nudge komanda se racuna iz OBJEKAT-a u odnosu na CENTAR SLIKE - jedina
+  geometrijski smislena referenca koju imamo bez kalibracije kamera<->rame.
+- Objekat se sad trazi preko object_detector.py (MediaPipe ObjectDetector,
+  EfficientDet-Lite0, COCO kategorije) umesto HSV boje - zadaje se preko
+  --object-label (npr. 'bottle', 'cup', 'cell phone'). Bez --object-label,
+  detektuje NAJBOLJU detekciju BILO KOJE kategorije - korisno prvi put da
+  vidis koje labele model uopste prepoznaje u tvojoj sceni (prati ispis).
 
-PODRAZUMEVANO JE DRY-RUN (samo ispisuje) - isti princip kao ostatak
-projekta. --execute stvarno salje HTTP pozive ka /api/nudge.
+PODRAZUMEVANO JE DRY-RUN - isti princip kao ostatak projekta. --execute
+stvarno salje HTTP pozive ka /api/nudge.
 
-NAPOMENE/NEPOZNANICE (isto kao u point_at_object.py):
+NAPOMENE/NEPOZNANICE (iste kao ranije):
 - SIGN_ABDUCT_MATCHES_SCREEN_RIGHT nije provereno na robotu.
-- Ako pratis sopstvenu saku kao "gde treba objekat da stigne" (umesto
-  centra slike), to je DRUGACIJI algoritam - javi ako je to zapravo ono
-  sto zelis (npr. "pomeri objekat dok mi ne dodje pod ruku") i predlazicu
-  izmenu.
 """
 from __future__ import annotations
 
@@ -35,12 +33,12 @@ import requests
 from mediapipe.tasks.python import BaseOptions
 from mediapipe.tasks.python.vision import HandLandmarker, HandLandmarkerOptions, RunningMode
 
-from color_target import DEFAULT_HSV_LOWER, DEFAULT_HSV_UPPER, find_target, parse_hsv
 from http_preview import publish_frame, start_http_preview
+from object_detector import create_detector, find_object
 
-MODEL_DIR = os.path.join(os.path.dirname(__file__), "models")
-MODEL_PATH = os.path.join(MODEL_DIR, "hand_landmarker.task")
-MODEL_URL = (
+HAND_MODEL_DIR = os.path.join(os.path.dirname(__file__), "models")
+HAND_MODEL_PATH = os.path.join(HAND_MODEL_DIR, "hand_landmarker.task")
+HAND_MODEL_URL = (
     "https://storage.googleapis.com/mediapipe-models/hand_landmarker/"
     "hand_landmarker/float16/latest/hand_landmarker.task"
 )
@@ -51,19 +49,19 @@ DEADZONE_FRAC = 0.10
 NUDGE_AMOUNT_RAD = 0.08
 STATUS_INTERVAL_S = 1.0
 
-# TODO: PROVERI na robotu - isto kao u point_at_object.py
+# TODO: PROVERI na robotu
 ACTING_SIDE = "right"
 SIGN_ABDUCT_MATCHES_SCREEN_RIGHT = True
 
 
-def ensure_model() -> str:
-    if not os.path.exists(MODEL_PATH):
-        os.makedirs(MODEL_DIR, exist_ok=True)
-        print(f"[track_and_point] preuzimam model u {MODEL_PATH} ...")
+def ensure_hand_model() -> str:
+    if not os.path.exists(HAND_MODEL_PATH):
+        os.makedirs(HAND_MODEL_DIR, exist_ok=True)
+        print(f"[track_and_point] preuzimam model saka u {HAND_MODEL_PATH} ...")
         import urllib.request
-        urllib.request.urlretrieve(MODEL_URL, MODEL_PATH)
+        urllib.request.urlretrieve(HAND_MODEL_URL, HAND_MODEL_PATH)
         print("[track_and_point] model preuzet.")
-    return MODEL_PATH
+    return HAND_MODEL_PATH
 
 
 def send_nudge(direction: str, dry_run: bool) -> None:
@@ -86,19 +84,20 @@ def send_nudge(direction: str, dry_run: bool) -> None:
         print(f"[track_and_point]   nudge NIJE uspeo: {e}")
 
 
-def run(source: str, hsv_lower, hsv_upper, dry_run: bool, interval_s: float,
-        http_port: int | None) -> None:
+def run(source: str, object_label: str | None, score_threshold: float, model_variant: str,
+        dry_run: bool, interval_s: float, http_port: int | None) -> None:
     if http_port is not None:
         start_http_preview(http_port)
 
-    model_path = ensure_model()
-    options = HandLandmarkerOptions(
-        base_options=BaseOptions(model_asset_path=model_path),
+    hand_model_path = ensure_hand_model()
+    hand_options = HandLandmarkerOptions(
+        base_options=BaseOptions(model_asset_path=hand_model_path),
         running_mode=RunningMode.IMAGE,
         num_hands=1,
         min_hand_detection_confidence=0.6,
         min_tracking_confidence=0.5,
     )
+    object_detector = create_detector(object_label, score_threshold=score_threshold, variant=model_variant)
 
     cap_source = int(source) if source.isdigit() else source
     cap = cv2.VideoCapture(cap_source)
@@ -106,13 +105,14 @@ def run(source: str, hsv_lower, hsv_upper, dry_run: bool, interval_s: float,
         raise RuntimeError(f"Ne mogu da otvorim izvor kamere: {source}")
 
     print(f"[track_and_point] {'DRY-RUN (samo ispis)' if dry_run else '*** LIVE - salje na robota ***'}"
-          f"  side={ACTING_SIDE}  interval={interval_s}s")
+          f"  side={ACTING_SIDE}  interval={interval_s}s  "
+          f"object_label={object_label or '(bilo koja kategorija)'}")
     if not dry_run:
         print("[track_and_point] Ctrl+C za prekid u svakom trenutku.")
 
     last_nudge = 0.0
     last_status = 0.0
-    with HandLandmarker.create_from_options(options) as landmarker:
+    with HandLandmarker.create_from_options(hand_options) as hand_landmarker:
         try:
             while True:
                 ok, frame = cap.read()
@@ -125,13 +125,13 @@ def run(source: str, hsv_lower, hsv_upper, dry_run: bool, interval_s: float,
 
                 rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                 mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
-                hand_result = landmarker.detect(mp_image)
+                hand_result = hand_landmarker.detect(mp_image)
                 hand_point = None
                 if hand_result.hand_landmarks:
                     lm = hand_result.hand_landmarks[0][WRIST_LANDMARK_IDX]
                     hand_point = (lm.x * w, lm.y * h)
 
-                target, _mask = find_target(frame, hsv_lower, hsv_upper)
+                target, _all_detections = find_object(object_detector, frame)
 
                 if http_port is not None:
                     annotated = frame.copy()
@@ -139,14 +139,16 @@ def run(source: str, hsv_lower, hsv_upper, dry_run: bool, interval_s: float,
                     if hand_point is not None:
                         cv2.circle(annotated, (int(hand_point[0]), int(hand_point[1])), 8, (0, 255, 0), -1)
                     if target is not None:
-                        tx_, ty_, r_ = target
+                        tx_, ty_, r_, label_, score_ = target
                         cv2.circle(annotated, (int(tx_), int(ty_)), int(r_), (255, 200, 0), 2)
                         cv2.line(annotated, (w // 2, h // 2), (int(tx_), int(ty_)), (0, 165, 255), 2)
+                        cv2.putText(annotated, f"{label_} {score_:.2f}", (int(tx_) - 20, int(ty_) - int(r_) - 8),
+                                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 200, 0), 2)
                     if hand_point is not None and target is not None:
                         cv2.line(annotated, (int(hand_point[0]), int(hand_point[1])),
                                   (int(target[0]), int(target[1])), (200, 200, 200), 1)
                     if target is None:
-                        cv2.putText(annotated, "cilj nije pronadjen", (10, 30),
+                        cv2.putText(annotated, "objekat nije pronadjen", (10, 30),
                                     cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
                     if hand_point is None:
                         cv2.putText(annotated, "saka nije pronadjena", (10, 55),
@@ -156,7 +158,10 @@ def run(source: str, hsv_lower, hsv_upper, dry_run: bool, interval_s: float,
                 now = time.time()
                 if now - last_status > STATUS_INTERVAL_S:
                     hand_txt = f"({hand_point[0]:.0f},{hand_point[1]:.0f})" if hand_point else "NIJE NADJENA"
-                    obj_txt = f"({target[0]:.0f},{target[1]:.0f})" if target else "NIJE NADJEN"
+                    if target:
+                        obj_txt = f"({target[0]:.0f},{target[1]:.0f}) label={target[3]!r} score={target[4]:.2f}"
+                    else:
+                        obj_txt = "NIJE NADJEN"
                     print(f"[track_and_point] saka={hand_txt}  objekat={obj_txt}")
                     last_status = now
 
@@ -168,7 +173,7 @@ def run(source: str, hsv_lower, hsv_upper, dry_run: bool, interval_s: float,
                     time.sleep(0.05)
                     continue
 
-                tx, ty, _r = target
+                tx, ty, _r, _label, _score = target
                 dx = (tx - w / 2) / (w / 2)
                 dy = (ty - h / 2) / (h / 2)
 
@@ -177,16 +182,17 @@ def run(source: str, hsv_lower, hsv_upper, dry_run: bool, interval_s: float,
                     last_nudge = now
                     continue
 
-                if abs(dx) > abs(dy):
+                # Salji OBE ose odjednom (ne ili-ili) - svaka osa se
+                # nudge-uje nezavisno ako prelazi svoj deadzone.
+                if abs(dx) >= DEADZONE_FRAC:
                     screen_right = dx > 0
                     if SIGN_ABDUCT_MATCHES_SCREEN_RIGHT:
-                        direction = "od_tela" if screen_right else "ka_telu"
+                        send_nudge("od_tela" if screen_right else "ka_telu", dry_run)
                     else:
-                        direction = "ka_telu" if screen_right else "od_tela"
-                else:
-                    direction = "dole" if dy > 0 else "gore"
+                        send_nudge("ka_telu" if screen_right else "od_tela", dry_run)
+                if abs(dy) >= DEADZONE_FRAC:
+                    send_nudge("dole" if dy > 0 else "gore", dry_run)
 
-                send_nudge(direction, dry_run)
                 last_nudge = now
         except KeyboardInterrupt:
             print("\n[track_and_point] prekinuto")
@@ -197,8 +203,16 @@ def run(source: str, hsv_lower, hsv_upper, dry_run: bool, interval_s: float,
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--source", default=os.getenv("HAND_TRACKER_SOURCE", "0"))
-    parser.add_argument("--target-lower", default=",".join(map(str, DEFAULT_HSV_LOWER)))
-    parser.add_argument("--target-upper", default=",".join(map(str, DEFAULT_HSV_UPPER)))
+    parser.add_argument("--object-label", default=None,
+                         help="COCO kategorija za trazenje (npr. 'bottle', 'cup', "
+                              "'cell phone'). Izostavi da vidis koje kategorije "
+                              "model uopste prepoznaje u tvojoj sceni (prati ispis).")
+    parser.add_argument("--score-threshold", type=float, default=0.5,
+                         help="minimalna pouzdanost detekcije (0-1) - spusti na 0.3 ako model ne "
+                              "nalazi male objekte, podigni na 0.7 ako hvata pogresne stvari")
+    parser.add_argument("--model", choices=["lite0", "lite2"], default="lite0",
+                         help="lite0 = brzi/manje tacan (default), lite2 = 448x448, znatno "
+                              "tacniji za male/reflektujuce objekte (flasa, solja, telefon)")
     parser.add_argument("--interval", type=float, default=1.5,
                          help="sekunde izmedju uzastopnih nudge komandi")
     parser.add_argument("--execute", action="store_true",
@@ -209,8 +223,9 @@ if __name__ == "__main__":
 
     run(
         args.source,
-        parse_hsv(args.target_lower),
-        parse_hsv(args.target_upper),
+        args.object_label,
+        args.score_threshold,
+        args.model,
         dry_run=not args.execute,
         interval_s=args.interval,
         http_port=args.http_port,
